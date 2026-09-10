@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f19">
+  <title>Motion Curve &amp; AE Loops Handbook</title>
+
+  <!-- LINE LIFF SDK v2 (URL ที่ถูกต้อง) -->
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #151c2e;
+      --accent: #06c755;           /* LINE Green */
+      --ae-purple: #995cf5;
+      --ae-blue: #38bdf8;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #232d42;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans Thai', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 12px 12px calc(30px + env(safe-area-inset-bottom));
+      min-height: 100vh;
+    }
+
+    /* ---------- Sticky Stage ---------- */
+    .sticky-stage {
+      position: sticky;
+      top: 8px;
+      z-index: 100;
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+      margin-bottom: 14px;
+    }
+    .badge-label {
+      font-size: 10px;
+      color: var(--ae-purple);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .mode-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 10px; }
+    .mode-btn {
+      background: #090e17;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 7px 0;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      transition: background .2s, border-color .2s, color .2s;
+      font-family: inherit;
+    }
+    .mode-btn.active { background: #27173e; border-color: var(--ae-purple); color: #e9d5ff; }
+
+    .track-wrapper {
+      background: #080c14;
+      border-radius: 16px;
+      padding: 5px;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid #1a2333;
+    }
+    .track { height: 34px; position: relative; width: 100%; }
+    .ball {
+      width: 34px; height: 34px;
+      background: radial-gradient(circle at 30% 30%, #a78bfa, var(--ae-purple));
+      border-radius: 50%;
+      position: absolute; left: 0; top: 0;
+      box-shadow: 0 0 14px rgba(153, 92, 245, 0.5);
+      will-change: transform;
+    }
+    .ball.fade { opacity: 0; transition: opacity 90ms linear !important; }
+
+    /* ---------- Bezier Graph (ใหญ่) ---------- */
+    .stage-row { display: flex; gap: 12px; align-items: stretch; margin-top: 10px; }
+    .graph-box {
+      position: relative;
+      width: 108px; height: 108px;
+      flex-shrink: 0;
+      background: #080c14;
+      border: 1px solid #1a2333;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .graph-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    .g-box   { fill: none; stroke: #223049; stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .g-diag  { stroke: #1b2740; stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+    .g-curve { fill: none; stroke: var(--ae-purple); stroke-width: 2.2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+
+    /* ชั้นพิกัดที่ตรงกับกรอบ 0..1 ของ viewBox พอดี (คำนวณจาก viewBox -4 -65 108 230) */
+    .unit-layer {
+      position: absolute;
+      left: 3.7037%; top: 28.2609%;
+      width: 92.5926%; height: 43.4783%;
+      pointer-events: none;
+    }
+    .dot-x, .dot-y { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+    .dot {
+      position: absolute; left: 0; bottom: 0;
+      width: 9px; height: 9px; margin: 0 0 -4.5px -4.5px;
+      border-radius: 50%;
+      background: #f3e8ff;
+      box-shadow: 0 0 10px rgba(233,213,255,0.9);
+    }
+    .graph-cap {
+      position: absolute; left: 6px; bottom: 4px;
+      font-size: 8px; color: #3f4d68; letter-spacing: .4px; font-weight: 700;
+    }
+
+    .stage-info { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+    .meta-title { font-size: 14px; font-weight: 700; color: #fff; word-break: break-word; }
+    .meta-exp { color: var(--ae-purple); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+    .meta-code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10.5px;
+      background: #090e17;
+      padding: 5px 8px;
+      border-radius: 6px;
+      color: var(--ae-blue);
+      border: 1px solid #1e293b;
+      word-break: break-all;
+    }
+
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .btn {
+      padding: 9px; border-radius: 8px; font-size: 12px; font-weight: 600;
+      border: none; cursor: pointer; font-family: inherit;
+      display: flex; align-items: center; justify-content: center; gap: 4px;
+    }
+    .btn-copy { background: #243049; color: #fff; }
+    .btn-line { background: var(--accent); color: #fff; }
+    .btn:active { opacity: 0.75; transform: scale(0.98); }
+
+    /* ---------- Search & List ---------- */
+    .search-box {
+      width: 100%; padding: 9px 12px;
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 8px; color: #fff; font-size: 12px; outline: none;
+      margin-bottom: 8px; font-family: inherit;
+    }
+    .search-box:focus { border-color: var(--ae-purple); }
+    .curve-count { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+
+    .list { display: flex; flex-direction: column; gap: 6px; }
+    .item {
+      background: var(--card-bg); padding: 9px 12px; border-radius: 8px;
+      border: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+      cursor: pointer; transition: border-color .15s, background .15s;
+    }
+    .item.active { border-color: var(--ae-purple); background: #1a152e; }
+    .item.active .mini { border-color: #3b2a5e; background: #120c22; }
+    .item-main { flex: 1; min-width: 0; }
+    .item-title { font-size: 12px; font-weight: 600; }
+    .item-val { font-size: 10px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: 2px; }
+    .badge { font-size: 9px; background: #1e293b; padding: 2px 5px; border-radius: 4px; color: #94a3b8; flex-shrink: 0; }
+
+    /* กราฟย่อในลิสต์ */
+    .mini {
+      width: 46px; height: 40px; flex-shrink: 0;
+      background: #0b111d; border: 1px solid #1a2333; border-radius: 6px;
+      display: block;
+    }
+    .empty { text-align: center; color: var(--text-muted); font-size: 12px; padding: 24px 0; }
+
+    /* ---------- Toast (แทน alert ที่ทำให้ LIFF ค้าง) ---------- */
+    .toast {
+      position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom));
+      transform: translateX(-50%) translateY(16px);
+      background: #1e293b; border: 1px solid var(--border); color: #fff;
+      padding: 10px 16px; border-radius: 10px; font-size: 12px; line-height: 1.5;
+      opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s;
+      z-index: 999; max-width: 88vw; text-align: center; white-space: pre-line;
+      box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 340px) {
+      .graph-box { width: 88px; height: 88px; }
+      .mini { width: 38px; height: 34px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sticky Stage -->
+  <div class="sticky-stage">
+    <div class="badge-label">After Effects Loop Expression Mode</div>
+
+    <div class="mode-bar" id="modeBar">
+      <button class="mode-btn active" data-mode="pingpong">pingpong</button>
+      <button class="mode-btn" data-mode="cycle">cycle</button>
+      <button class="mode-btn" data-mode="offset">offset</button>
+      <button class="mode-btn" data-mode="continue">continue</button>
+    </div>
+
+    <div class="track-wrapper">
+      <div class="track" id="track">
+        <div class="ball" id="ball"></div>
+      </div>
+    </div>
+
+    <div class="stage-row">
+      <!-- กราฟ bezier ของเคิร์ฟที่เลือก -->
+      <div class="graph-box">
+        <svg class="graph-svg" viewBox="-4 -65 108 230" preserveAspectRatio="none" aria-hidden="true">
+          <rect x="0" y="0" width="100" height="100" class="g-box"></rect>
+          <line x1="0" y1="100" x2="100" y2="0" class="g-diag"></line>
+          <path id="graphPath" class="g-curve" d="M 0 100 C 33 0, 68 0, 100 0"></path>
+        </svg>
+        <div class="unit-layer">
+          <div class="dot-x" id="dotX">
+            <div class="dot-y" id="dotY"><span class="dot"></span></div>
+          </div>
+        </div>
+        <div class="graph-cap">TIME →</div>
+      </div>
+
+      <div class="stage-info">
+        <div class="meta-title" id="currentName">EaseOutCubic</div>
+        <div class="meta-exp" id="currentExp">loopOut("pingpong")</div>
+        <div class="meta-code" id="currentBezier">cubic-bezier(0.33, 1, 0.68, 1)</div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-copy" id="btnCopy">📋 คัดลอก Code</button>
+      <button class="btn btn-line" id="btnLine">💬 ส่งเข้า LINE</button>
+    </div>
+  </div>
+
+  <!-- Search & Catalog -->
+  <input type="text" class="search-box" id="search" placeholder="ค้นหา เช่น Expo, Back, Easy Ease, M3..." autocomplete="off">
+  <div class="curve-count" id="countLabel">กำลังโหลดรายชื่อ...</div>
+  <div class="list" id="curveList"></div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    /* ============================================================
+       ตั้งค่า LIFF
+       Channel : Motion Curve Guide (LINE Login) / Provider: Tooncg
+       LIFF URL: https://liff.line.me/2011541342-1dvdWzkH
+       ============================================================ */
+    const LIFF_ID = "2011541342-1dvdWzkH";
+
+    /* ============================================================
+       ฐานข้อมูล Motion Curves ทั้งหมด 54 รูปแบบ
+       ============================================================ */
+    const curves = [
+      // 1. CSS Native (5)
+      { cat: "CSS Native", name: "linear",      val: "cubic-bezier(0, 0, 1, 1)" },
+      { cat: "CSS Native", name: "ease",        val: "cubic-bezier(0.25, 0.1, 0.25, 1)" },
+      { cat: "CSS Native", name: "ease-in",     val: "cubic-bezier(0.42, 0, 1, 1)" },
+      { cat: "CSS Native", name: "ease-out",    val: "cubic-bezier(0, 0, 0.58, 1)" },
+      { cat: "CSS Native", name: "ease-in-out", val: "cubic-bezier(0.42, 0, 0.58, 1)" },
+
+      // 2. Penner: Sine (3)
+      { cat: "Penner Sine", name: "EaseInSine",    val: "cubic-bezier(0.12, 0, 0.39, 0)" },
+      { cat: "Penner Sine", name: "EaseOutSine",   val: "cubic-bezier(0.61, 1, 0.88, 1)" },
+      { cat: "Penner Sine", name: "EaseInOutSine", val: "cubic-bezier(0.37, 0, 0.63, 1)" },
+
+      // 3. Penner: Quad (3)
+      { cat: "Penner Quad", name: "EaseInQuad",    val: "cubic-bezier(0.11, 0, 0.5, 0)" },
+      { cat: "Penner Quad", name: "EaseOutQuad",   val: "cubic-bezier(0.5, 1, 0.89, 1)" },
+      { cat: "Penner Quad", name: "EaseInOutQuad", val: "cubic-bezier(0.45, 0, 0.55, 1)" },
+
+      // 4. Penner: Cubic (3)
+      { cat: "Penner Cubic", name: "EaseInCubic",    val: "cubic-bezier(0.32, 0, 0.67, 0)" },
+      { cat: "Penner Cubic", name: "EaseOutCubic",   val: "cubic-bezier(0.33, 1, 0.68, 1)" },
+      { cat: "Penner Cubic", name: "EaseInOutCubic", val: "cubic-bezier(0.65, 0, 0.35, 1)" },
+
+      // 5. Penner: Quart (3)
+      { cat: "Penner Quart", name: "EaseInQuart",    val: "cubic-bezier(0.5, 0, 0.75, 0)" },
+      { cat: "Penner Quart", name: "EaseOutQuart",   val: "cubic-bezier(0.25, 1, 0.5, 1)" },
+      { cat: "Penner Quart", name: "EaseInOutQuart", val: "cubic-bezier(0.76, 0, 0.24, 1)" },
+
+      // 6. Penner: Quint (3)
+      { cat: "Penner Quint", name: "EaseInQuint",    val: "cubic-bezier(0.64, 0, 0.78, 0)" },
+      { cat: "Penner Quint", name: "EaseOutQuint",   val: "cubic-bezier(0.22, 1, 0.36, 1)" },
+      { cat: "Penner Quint", name: "EaseInOutQuint", val: "cubic-bezier(0.83, 0, 0.17, 1)" },
+
+      // 7. Penner: Expo (3)
+      { cat: "Penner Expo", name: "EaseInExpo",    val: "cubic-bezier(0.7, 0, 0.84, 0)" },
+      { cat: "Penner Expo", name: "EaseOutExpo",   val: "cubic-bezier(0.16, 1, 0.3, 1)" },
+      { cat: "Penner Expo", name: "EaseInOutExpo", val: "cubic-bezier(0.87, 0, 0.13, 1)" },
+
+      // 8. Penner: Circ (3)
+      { cat: "Penner Circ", name: "EaseInCirc",    val: "cubic-bezier(0.55, 0, 1, 0.45)" },
+      { cat: "Penner Circ", name: "EaseOutCirc",   val: "cubic-bezier(0, 0.55, 0.45, 1)" },
+      { cat: "Penner Circ", name: "EaseInOutCirc", val: "cubic-bezier(0.85, 0, 0.15, 1)" },
+
+      // 9. Penner: Back / Overshoot (3)
+      { cat: "Penner Back", name: "EaseInBack",    val: "cubic-bezier(0.36, 0, 0.66, -0.56)" },
+      { cat: "Penner Back", name: "EaseOutBack",   val: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
+      { cat: "Penner Back", name: "EaseInOutBack", val: "cubic-bezier(0.68, -0.6, 0.32, 1.6)" },
+
+      // 10. Elastic Approximations (3) — bezier ทำ oscillation จริงไม่ได้ ค่านี้คือค่าประมาณ
+      { cat: "Elastic Style", name: "EaseInElastic (approx)",    val: "cubic-bezier(0.68, -0.55, 0.265, 1.55)" },
+      { cat: "Elastic Style", name: "EaseOutElastic (approx)",   val: "cubic-bezier(0.175, 0.885, 0.32, 1.275)" },
+      { cat: "Elastic Style", name: "EaseInOutElastic (approx)", val: "cubic-bezier(0.87, -0.41, 0.19, 1.44)" },
+
+      // 11. Google Material Design (9)
+      { cat: "Material Design", name: "M3 Emphasized",            val: "cubic-bezier(0.2, 0, 0, 1)" },
+      { cat: "Material Design", name: "M3 Emphasized Decelerate", val: "cubic-bezier(0.05, 0.7, 0.1, 1)" },
+      { cat: "Material Design", name: "M3 Emphasized Accelerate", val: "cubic-bezier(0.3, 0, 0.8, 0.15)" },
+      { cat: "Material Design", name: "M3 Standard",              val: "cubic-bezier(0.2, 0, 0, 1)" },
+      { cat: "Material Design", name: "M3 Standard Decelerate",   val: "cubic-bezier(0, 0, 0, 1)" },
+      { cat: "Material Design", name: "M3 Standard Accelerate",   val: "cubic-bezier(0.3, 0, 1, 1)" },
+      { cat: "Material Design", name: "Legacy FastOutSlowIn",     val: "cubic-bezier(0.4, 0, 0.2, 1)" },
+      { cat: "Material Design", name: "Legacy LinearOutSlowIn",   val: "cubic-bezier(0, 0, 0.2, 1)" },
+      { cat: "Material Design", name: "Legacy FastOutLinearIn",   val: "cubic-bezier(0.4, 0, 1, 1)" },
+
+      // 12. Apple iOS / macOS HIG (4)
+      { cat: "Apple HIG", name: "iOS Default Spring",      val: "cubic-bezier(0.25, 1, 0.5, 1)" },
+      { cat: "Apple HIG", name: "iOS Interactive Gesture", val: "cubic-bezier(0.32, 0.72, 0, 1)" },
+      { cat: "Apple HIG", name: "iOS Snappy Switcher",     val: "cubic-bezier(0.2, 0.9, 0.1, 1)" },
+      { cat: "Apple HIG", name: "iOS System Alert In",     val: "cubic-bezier(0.1, 1.2, 0.3, 1)" },
+
+      // 13. UI Physics Presets (5)
+      { cat: "UI Presets", name: "Bouncy Overshoot",          val: "cubic-bezier(0.175, 0.885, 0.32, 1.4)" },
+      { cat: "UI Presets", name: "Smooth Decel (Modal open)", val: "cubic-bezier(0.16, 1, 0.3, 1)" },
+      { cat: "UI Presets", name: "Sharp Accel (Modal close)", val: "cubic-bezier(0.7, 0, 0.84, 0)" },
+      { cat: "UI Presets", name: "Subtle Pop",                val: "cubic-bezier(0.3, 1.3, 0.5, 1)" },
+      { cat: "UI Presets", name: "Heavy Drop",                val: "cubic-bezier(0.6, 0.05, 0.28, 0.9)" },
+
+      // 14. After Effects Specialty (4)
+      { cat: "After Effects", name: "AE Easy Ease (33% Inf.)", val: "cubic-bezier(0.33, 0, 0.67, 1)" },
+      { cat: "After Effects", name: "AE Heavy Ease-Out (75%)", val: "cubic-bezier(0.1, 0.9, 0.2, 1)" },
+      { cat: "After Effects", name: "AE Dramatic Peak (90%)",  val: "cubic-bezier(0.9, 0, 0.1, 1)" },
+      { cat: "After Effects", name: "AE Anticipate Snappy",    val: "cubic-bezier(0.6, -0.28, 0.735, 0.045)" }
+    ];
+
+    /* ============================================================
+       State & DOM
+       ============================================================ */
+    const DUR = 850;
+    let currentSelected = curves.find(c => c.name === "EaseOutCubic") || curves[0];
+    let currentMode = "pingpong";
+    let timer = null;
+    let animCycle = 0;
+    let paused = false;
+
+    const ball     = document.getElementById('ball');
+    const track    = document.getElementById('track');
+    const elName   = document.getElementById('currentName');
+    const elExp    = document.getElementById('currentExp');
+    const elBezier = document.getElementById('currentBezier');
+    const elList   = document.getElementById('curveList');
+    const elCount  = document.getElementById('countLabel');
+    const elSearch = document.getElementById('search');
+    const elToast  = document.getElementById('toast');
+    const graphPath = document.getElementById('graphPath');
+    const dotX     = document.getElementById('dotX');
+    const dotY     = document.getElementById('dotY');
+
+    /* ============================================================
+       Bezier → เส้นกราฟ
+       viewBox = "-4 -65 108 230" : กรอบ 0..100 คือช่วงค่า 0..1
+       รองรับ overshoot ตั้งแต่ -0.65 ถึง 1.65 โดยไม่โดนตัด
+       ============================================================ */
+    function parseBezier(val) {
+      const m = String(val).match(/cubic-bezier\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)/);
+      if (!m) return [0, 0, 1, 1];
+      return [parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]), parseFloat(m[4])];
+    }
+
+    function curvePath(val) {
+      const p = parseBezier(val);
+      const n = v => (Math.round(v * 100) / 100);
+      return 'M 0 100 C ' +
+             n(p[0] * 100) + ' ' + n((1 - p[1]) * 100) + ', ' +
+             n(p[2] * 100) + ' ' + n((1 - p[3]) * 100) + ', 100 0';
+    }
+
+    function miniSvg(val) {
+      return '<svg class="mini" viewBox="-4 -65 108 230" preserveAspectRatio="none" aria-hidden="true">' +
+               '<rect x="0" y="0" width="100" height="100" class="g-box"></rect>' +
+               '<line x1="0" y1="100" x2="100" y2="0" class="g-diag"></line>' +
+               '<path class="g-curve" d="' + curvePath(val) + '"></path>' +
+             '</svg>';
+    }
+
+    /* จุดวิ่งบนกราฟ: แกน X เดินเป็น linear (= เวลา), แกน Y ใช้เคิร์ฟจริง
+       ผลลัพธ์คือจุดจะไต่ไปตามเส้นกราฟพอดีเป๊ะ */
+    function animateGraphDot(ms, easing, reverse) {
+      dotX.style.transition = 'none';
+      dotY.style.transition = 'none';
+      dotX.style.transform = reverse ? 'translateX(100%)'  : 'translateX(0)';
+      dotY.style.transform = reverse ? 'translateY(-100%)' : 'translateY(0)';
+      void dotX.offsetWidth;
+      dotX.style.transition = 'transform ' + ms + 'ms linear';
+      dotY.style.transition = 'transform ' + ms + 'ms ' + easing;
+      dotX.style.transform = reverse ? 'translateX(0)' : 'translateX(100%)';
+      dotY.style.transform = reverse ? 'translateY(0)' : 'translateY(-100%)';
+    }
+
+    function resetGraphDot() {
+      dotX.style.transition = 'none';
+      dotY.style.transition = 'none';
+      dotX.style.transform = 'translateX(0)';
+      dotY.style.transform = 'translateY(0)';
+      void dotX.offsetWidth;
+    }
+
+    /* ============================================================
+       Toast — ใช้แทน alert() เพราะ alert บล็อก WebView ของ LINE
+       ============================================================ */
+    let toastTimer = null;
+    function toast(msg, ms) {
+      elToast.textContent = msg;
+      elToast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => elToast.classList.remove('show'), ms || 2200);
+    }
+
+    /* ============================================================
+       After Effects Loop Expression Simulator Engine
+       ============================================================ */
+    function maxTravel() {
+      return Math.max(0, track.clientWidth - ball.offsetWidth);
+    }
+
+    function snapToStart(cb) {
+      ball.classList.add('fade');
+      setTimeout(() => {
+        ball.style.transition = 'none';
+        ball.style.transform = 'translateX(0px)';
+        void ball.offsetWidth;
+        ball.classList.remove('fade');
+        resetGraphDot();
+        cb();
+      }, 100);
+    }
+
+    function runLoopEngine() {
+      clearTimeout(timer);
+      if (paused) return;
+
+      const maxW = maxTravel();
+      if (maxW <= 0) { timer = setTimeout(runLoopEngine, 200); return; }
+      const ease = currentSelected.val;
+
+      if (currentMode === 'pingpong') {
+        // ไป-กลับสลับทิศทุกรอบ เหมือน loopOut("pingpong")
+        const toEnd = animCycle % 2 === 0;
+        ball.style.transition = 'transform ' + DUR + 'ms ' + ease;
+        ball.style.transform = 'translateX(' + (toEnd ? maxW : 0) + 'px)';
+        animateGraphDot(DUR, ease, !toEnd);
+        animCycle++;
+        timer = setTimeout(runLoopEngine, DUR + 150);
+
+      } else if (currentMode === 'cycle') {
+        // วิ่งจบแล้วดีดกลับต้นทาง เหมือน loopOut("cycle")
+        ball.style.transition = 'transform ' + DUR + 'ms ' + ease;
+        ball.style.transform = 'translateX(' + maxW + 'px)';
+        animateGraphDot(DUR, ease, false);
+        timer = setTimeout(() => {
+          snapToStart(() => { timer = setTimeout(runLoopEngine, 120); });
+        }, DUR);
+
+      } else if (currentMode === 'offset') {
+        // สะสมค่าเพิ่มขึ้นทีละช่วง เหมือน loopOut("offset")
+        const STEPS = 3;
+        const step = maxW / STEPS;
+        const idx = animCycle % (STEPS + 1);
+
+        if (idx === 0) {
+          animCycle++;
+          snapToStart(() => { timer = setTimeout(runLoopEngine, 60); });
+          return;
+        }
+        ball.style.transition = 'transform ' + DUR + 'ms ' + ease;
+        ball.style.transform = 'translateX(' + (step * idx) + 'px)';
+        animateGraphDot(DUR, ease, false);
+        animCycle++;
+        timer = setTimeout(runLoopEngine, DUR + 100);
+
+      } else if (currentMode === 'continue') {
+        // อีสจบแล้ววิ่งต่อด้วยความเร็วคงที่ เหมือน loopOut("continue")
+        ball.style.transition = 'transform ' + DUR + 'ms ' + ease;
+        ball.style.transform = 'translateX(' + (maxW * 0.65) + 'px)';
+        animateGraphDot(DUR, ease, false);
+        timer = setTimeout(() => {
+          if (paused) return;
+          const tail = Math.round(DUR * 0.7);
+          ball.style.transition = 'transform ' + tail + 'ms linear';
+          ball.style.transform = 'translateX(' + maxW + 'px)';
+          timer = setTimeout(() => {
+            snapToStart(() => { timer = setTimeout(runLoopEngine, 120); });
+          }, tail + 200);
+        }, DUR);
+      }
+    }
+
+    function resetAndPlay() {
+      clearTimeout(timer);
+      ball.classList.remove('fade');
+      ball.style.transition = 'none';
+      ball.style.transform = 'translateX(0px)';
+      resetGraphDot();
+      animCycle = 0;
+      void ball.offsetWidth;
+      runLoopEngine();
+    }
+
+    /* ============================================================
+       UI
+       ============================================================ */
+    function setLoopMode(mode) {
+      currentMode = mode;
+      document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+      });
+      elExp.textContent = 'loopOut("' + mode + '")';
+      resetAndPlay();
+    }
+
+    function selectCurve(index) {
+      currentSelected = curves[index];
+      elName.textContent = currentSelected.name;
+      elBezier.textContent = currentSelected.val;
+      graphPath.setAttribute('d', curvePath(currentSelected.val));
+      document.querySelectorAll('.item').forEach(el => {
+        el.classList.toggle('active', Number(el.dataset.index) === index);
+      });
+      resetAndPlay();
+    }
+
+    function renderList(items) {
+      elCount.textContent = 'แสดง ' + items.length + ' / ' + curves.length + ' รายการ';
+      if (!items.length) {
+        elList.innerHTML = '<div class="empty">ไม่พบเคิร์ฟที่ตรงกับคำค้นหา</div>';
+        return;
+      }
+      elList.innerHTML = items.map(c => {
+        const idx = curves.indexOf(c);
+        const active = (c === currentSelected) ? ' active' : '';
+        return '<div class="item' + active + '" data-index="' + idx + '">' +
+                 miniSvg(c.val) +
+                 '<div class="item-main">' +
+                   '<div class="item-title">' + c.name + '</div>' +
+                   '<div class="item-val">' + c.val + '</div>' +
+                 '</div>' +
+                 '<span class="badge">' + c.cat + '</span>' +
+               '</div>';
+      }).join('');
+    }
+
+    function filterCurves() {
+      const q = elSearch.value.toLowerCase().trim();
+      if (!q) { renderList(curves); return; }
+      renderList(curves.filter(c =>
+        c.name.toLowerCase().includes(q) ||
+        c.cat.toLowerCase().includes(q) ||
+        c.val.toLowerCase().includes(q)
+      ));
+    }
+
+    /* ============================================================
+       Copy / LINE
+       ============================================================ */
+    function buildSnippet() {
+      return '// After Effects Expression\n' +
+             elExp.textContent + ';\n\n' +
+             '/* CSS Transition */\n' +
+             'transition-timing-function: ' + currentSelected.val + ';';
+    }
+
+    function buildMessage() {
+      return '🎬 After Effects & Motion Spec\n' +
+             '• โหมด: ' + elExp.textContent + '\n' +
+             '• โมชันเคิร์ฟ: ' + currentSelected.name + '\n' +
+             '• สเปก: ' + currentSelected.val + '\n' +
+             '• หมวดหมู่: ' + currentSelected.cat;
+    }
+
+    // clipboard API ใช้ไม่ได้ใน WebView บางเวอร์ชัน จึงมี fallback
+    async function copyText(text) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+      } catch (e) { /* ตกไปใช้ fallback */ }
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;top:-1000px;left:0;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch (e) { return false; }
+    }
+
+    async function copySnippet() {
+      const ok = await copyText(buildSnippet());
+      toast(ok ? '📋 คัดลอกโค้ดเรียบร้อย\n' + currentSelected.name
+               : '❌ คัดลอกไม่สำเร็จ กรุณากดค้างเพื่อคัดลอกเอง');
+    }
+
+    async function sendToLine() {
+      const msg = buildMessage();
+      const inClient = (typeof liff !== 'undefined') && liff.isInClient && liff.isInClient();
+
+      if (!inClient) {
+        const ok = await copyText(msg);
+        toast(ok ? '📋 อยู่นอกแอป LINE — คัดลอกข้อความให้แทนแล้ว'
+                 : 'พรีวิวนอกแอป LINE:\n' + msg, 3000);
+        return;
+      }
+      try {
+        await liff.sendMessages([{ type: 'text', text: msg }]);
+        liff.closeWindow();
+      } catch (e) {
+        toast('❌ ส่งข้อความไม่สำเร็จ\nตรวจสอบสิทธิ์ chat_message.write ใน LIFF', 3200);
+      }
+    }
+
+    /* ============================================================
+       LIFF Init
+       ============================================================ */
+    async function initLIFF() {
+      if (typeof liff === 'undefined') {
+        console.warn('LIFF SDK ยังไม่ถูกโหลด — โหมดพรีวิวบนเว็บปกติ');
+        return;
+      }
+      if (!LIFF_ID || LIFF_ID === 'YOUR_LIFF_ID') {
+        console.warn('ยังไม่ได้ตั้งค่า LIFF_ID — ข้ามการ init');
+        return;
+      }
+      try {
+        await liff.init({ liffId: LIFF_ID });
+      } catch (e) {
+        console.warn('LIFF init ไม่สำเร็จ:', e);
+      }
+    }
+
+    /* ============================================================
+       Events & Boot
+       ============================================================ */
+    document.getElementById('modeBar').addEventListener('click', e => {
+      const btn = e.target.closest('.mode-btn');
+      if (btn) setLoopMode(btn.dataset.mode);
+    });
+
+    elList.addEventListener('click', e => {
+      const item = e.target.closest('.item');
+      if (item) selectCurve(Number(item.dataset.index));
+    });
+
+    elSearch.addEventListener('input', filterCurves);
+    document.getElementById('btnCopy').addEventListener('click', copySnippet);
+    document.getElementById('btnLine').addEventListener('click', sendToLine);
+
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(resetAndPlay, 200);
+    });
+
+    // หยุดอนิเมชันเมื่อสลับแท็บ/ย่อแอป เพื่อไม่ให้กินแบตฟรี ๆ
+    document.addEventListener('visibilitychange', () => {
+      paused = document.hidden;
+      if (paused) { clearTimeout(timer); }
+      else { resetAndPlay(); }
+    });
+
+    graphPath.setAttribute('d', curvePath(currentSelected.val));
+    elBezier.textContent = currentSelected.val;
+    elName.textContent = currentSelected.name;
+    renderList(curves);
+    initLIFF();
+    setTimeout(resetAndPlay, 300);
+  })();
+  </script>
+</body>
+</html>
