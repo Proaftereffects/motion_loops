@@ -134,6 +134,23 @@
       word-break: break-all;
     }
 
+    /* คำอธิบายเฉพาะโหมด continue — เปลี่ยน "ลูกบอลไม่ขยับ" ให้เป็นบทเรียน */
+    .hint {
+      margin-top: 8px;
+      padding: 7px 10px;
+      background: #0e1524;
+      border-left: 2px solid var(--ae-purple);
+      border-radius: 0 6px 6px 0;
+      font-size: 11px;
+      line-height: 1.55;
+      color: #c4b5fd;
+    }
+    .hint b {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #f3e8ff;
+      font-weight: 700;
+    }
+
     .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
     .btn {
       padding: 9px; border-radius: 8px; font-size: 12px; font-weight: 600;
@@ -235,6 +252,8 @@
         <div class="meta-code" id="currentBezier">cubic-bezier(0.33, 1, 0.68, 1)</div>
       </div>
     </div>
+
+    <div class="hint" id="hint" hidden></div>
 
     <div class="actions">
       <button class="btn btn-copy" id="btnCopy">📋 คัดลอก Code</button>
@@ -369,6 +388,7 @@
     const graphPath = document.getElementById('graphPath');
     const graphSvg = document.getElementById('graphSvg');
     const unitLayer = document.getElementById('unitLayer');
+    const elHint   = document.getElementById('hint');
     const dotX     = document.getElementById('dotX');
     const dotY     = document.getElementById('dotY');
 
@@ -421,6 +441,19 @@
       return { v: v, t: t, gain: v * t };
     }
 
+    /* คำอธิบายผลของ continue สำหรับเคิร์ฟที่เลือก
+       ตัวเลขคือความเร็วที่คีย์สุดท้าย เทียบเป็นกี่เท่าของความเร็วเฉลี่ยตลอดช่วงคีย์เฟรม
+       (ความเร็วเฉลี่ย = 1.00 เพราะค่าเดินทาง 0→1 ในเวลา 1 หน่วยเสมอ) */
+    function continueHint(val) {
+      const v = exitVelocity(val);
+      const s = v.toFixed(2);
+      const head = 'ความเร็วที่คีย์สุดท้าย <b>' + s + '×</b> ของความเร็วเฉลี่ย → ';
+      if (v <= 0.05) return head + 'continue ไม่ขยับเลย เพราะคีย์สุดท้ายอีสจนความเร็วเป็นศูนย์ ไม่มีอะไรให้ไปต่อ';
+      if (v < 0.9)   return head + 'ไหลต่อช้า ๆ กว่าตอนอยู่ในช่วงคีย์เฟรม';
+      if (v <= 1.1)  return head + 'ไปต่อด้วยความเร็วเดิม เป็นเส้นตรงไม่มีสะดุด';
+      return head + 'พุ่งต่อแรงกว่าความเร็วเฉลี่ย ' + s + ' เท่า';
+    }
+
     /* กราฟรู้จักโหมด: โหมด continue จะต่อเส้นตรงออกไปเลยกรอบ value 1
        พร้อมขยาย viewBox และรีแมปชั้นพิกัดของจุดวิ่งให้ตรงกัน */
     function setGraph(mode, val) {
@@ -437,6 +470,14 @@
         x0 = -4;
         w = 108 + tx;
         h = 165 - y0;
+      }
+
+      if (mode === 'continue') {
+        elHint.innerHTML = continueHint(val);
+        elHint.hidden = false;
+      } else {
+        elHint.hidden = true;
+        elHint.innerHTML = '';
       }
 
       graphSvg.setAttribute('viewBox', x0 + ' ' + y0 + ' ' + w + ' ' + h);
