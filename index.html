@@ -216,12 +216,12 @@
     <div class="stage-row">
       <!-- กราฟ bezier ของเคิร์ฟที่เลือก -->
       <div class="graph-box">
-        <svg class="graph-svg" viewBox="-4 -65 108 230" preserveAspectRatio="none" aria-hidden="true">
+        <svg class="graph-svg" id="graphSvg" viewBox="-4 -65 108 230" preserveAspectRatio="none" aria-hidden="true">
           <rect x="0" y="0" width="100" height="100" class="g-box"></rect>
           <line x1="0" y1="100" x2="100" y2="0" class="g-diag"></line>
           <path id="graphPath" class="g-curve" d="M 0 100 C 33 0, 68 0, 100 0"></path>
         </svg>
-        <div class="unit-layer">
+        <div class="unit-layer" id="unitLayer">
           <div class="dot-x" id="dotX">
             <div class="dot-y" id="dotY"><span class="dot"></span></div>
           </div>
@@ -367,6 +367,8 @@
     const elSearch = document.getElementById('search');
     const elToast  = document.getElementById('toast');
     const graphPath = document.getElementById('graphPath');
+    const graphSvg = document.getElementById('graphSvg');
+    const unitLayer = document.getElementById('unitLayer');
     const dotX     = document.getElementById('dotX');
     const dotY     = document.getElementById('dotY');
 
@@ -389,6 +391,64 @@
              n(p[2] * 100) + ' ' + n((1 - p[3]) * 100) + ', 100 0';
     }
 
+    /* เคิร์ฟที่ "ย้อนเวลา" ของ cubic-bezier(x1,y1,x2,y2) คือ (1-x2, 1-y2, 1-x1, 1-y1)
+       ใช้กับขากลับของ pingpong เพื่อให้เดินถอยตามเส้นเดิมเป๊ะ
+       เช็กได้: EaseOutCubic (0.33,1,0.68,1) ย้อนแล้วได้ (0.32,0,0.67,0) = EaseInCubic */
+    function reverseBezier(val) {
+      const p = parseBezier(val);
+      const n = v => (Math.round(v * 1000) / 1000);
+      return 'cubic-bezier(' + n(1 - p[2]) + ', ' + n(1 - p[3]) + ', ' +
+                               n(1 - p[0]) + ', ' + n(1 - p[1]) + ')';
+    }
+
+    /* ความเร็วปลายทางของเคิร์ฟ (ความชันที่ t=1) — หัวใจของ loopOut("continue")
+       ถ้า P2 อยู่ที่ x=1 พอดี ให้ใช้ทิศจาก P1 แทน (กรณี linear / ease-in) */
+    function exitVelocity(val) {
+      const p = parseBezier(val);
+      const dx = 1 - p[2], dy = 1 - p[3];
+      if (Math.abs(dx) > 1e-4) return dy / dx;
+      const dx1 = 1 - p[0], dy1 = 1 - p[1];
+      if (Math.abs(dx1) > 1e-4) return dy1 / dx1;
+      return 0;
+    }
+
+    /* หางของ continue: จำกัดให้ค่าเพิ่มไม่เกิน 1.0 เท่าของช่วงคีย์เฟรม
+       เคิร์ฟชันมาก (EaseInExpo) จะได้หางสั้นแต่พุ่ง / เคิร์ฟ EaseOut ได้หางยาวแต่แทบไม่ขยับ */
+    function continueTail(val) {
+      const v = exitVelocity(val);
+      let t = (v <= 0.001) ? 1.0 : Math.min(1.0, 1.0 / v);
+      t = Math.max(0.15, t);
+      return { v: v, t: t, gain: v * t };
+    }
+
+    /* กราฟรู้จักโหมด: โหมด continue จะต่อเส้นตรงออกไปเลยกรอบ value 1
+       พร้อมขยาย viewBox และรีแมปชั้นพิกัดของจุดวิ่งให้ตรงกัน */
+    function setGraph(mode, val) {
+      const n = v => (Math.round(v * 100) / 100);
+      let d = curvePath(val);
+      let x0 = -4, y0 = -65, w = 108, h = 230;
+
+      if (mode === 'continue') {
+        const tail = continueTail(val);
+        const tx = 100 * tail.t;
+        const ty = 100 * tail.gain;
+        d += ' L ' + n(100 + tx) + ' ' + n(-ty);
+        y0 = Math.min(-ty, -65) - 5;
+        x0 = -4;
+        w = 108 + tx;
+        h = 165 - y0;
+      }
+
+      graphSvg.setAttribute('viewBox', x0 + ' ' + y0 + ' ' + w + ' ' + h);
+      graphPath.setAttribute('d', d);
+
+      // กรอบ 0..100 ของ viewBox = ชั้นพิกัด value 0..1 ที่จุดวิ่งอ้างอิง
+      unitLayer.style.left   = ((0 - x0) / w * 100) + '%';
+      unitLayer.style.width  = (100 / w * 100) + '%';
+      unitLayer.style.top    = ((0 - y0) / h * 100) + '%';
+      unitLayer.style.height = (100 / h * 100) + '%';
+    }
+
     function miniSvg(val) {
       return '<svg class="mini" viewBox="-4 -65 108 230" preserveAspectRatio="none" aria-hidden="true">' +
                '<rect x="0" y="0" width="100" height="100" class="g-box"></rect>' +
@@ -397,27 +457,24 @@
              '</svg>';
     }
 
-    /* จุดวิ่งบนกราฟ: แกน X เดินเป็น linear (= เวลา), แกน Y ใช้เคิร์ฟจริง
-       ผลลัพธ์คือจุดจะไต่ไปตามเส้นกราฟพอดีเป๊ะ */
-    function animateGraphDot(ms, easing, reverse) {
+    /* จุดวิ่งบนกราฟ: แกน X = เวลา (linear เสมอ), แกน Y = ค่าที่ผ่านเคิร์ฟ
+       เปอร์เซ็นต์อ้างอิงกรอบ value 0..1 จึงเกิน 100% ได้ในโหมด continue */
+    function graphDotSet(xPct, yPct) {
       dotX.style.transition = 'none';
       dotY.style.transition = 'none';
-      dotX.style.transform = reverse ? 'translateX(100%)'  : 'translateX(0)';
-      dotY.style.transform = reverse ? 'translateY(-100%)' : 'translateY(0)';
+      dotX.style.transform = 'translateX(' + xPct + '%)';
+      dotY.style.transform = 'translateY(' + (-yPct) + '%)';
       void dotX.offsetWidth;
-      dotX.style.transition = 'transform ' + ms + 'ms linear';
-      dotY.style.transition = 'transform ' + ms + 'ms ' + easing;
-      dotX.style.transform = reverse ? 'translateX(0)' : 'translateX(100%)';
-      dotY.style.transform = reverse ? 'translateY(0)' : 'translateY(-100%)';
     }
 
-    function resetGraphDot() {
-      dotX.style.transition = 'none';
-      dotY.style.transition = 'none';
-      dotX.style.transform = 'translateX(0)';
-      dotY.style.transform = 'translateY(0)';
-      void dotX.offsetWidth;
+    function graphDotTo(ms, easeX, easeY, xPct, yPct) {
+      dotX.style.transition = 'transform ' + ms + 'ms ' + easeX;
+      dotY.style.transition = 'transform ' + ms + 'ms ' + easeY;
+      dotX.style.transform = 'translateX(' + xPct + '%)';
+      dotY.style.transform = 'translateY(' + (-yPct) + '%)';
     }
+
+    function resetGraphDot() { graphDotSet(0, 0); }
 
     /* ============================================================
        Toast — ใช้แทน alert() เพราะ alert บล็อก WebView ของ LINE
@@ -458,19 +515,23 @@
       const ease = currentSelected.val;
 
       if (currentMode === 'pingpong') {
-        // ไป-กลับสลับทิศทุกรอบ เหมือน loopOut("pingpong")
+        // ไป-กลับ เหมือน loopOut("pingpong") — ขากลับคือการ "ย้อนเวลา"
+        // จึงต้องใช้เคิร์ฟกลับด้าน ไม่ใช่เคิร์ฟเดิม แล้วต่อกันโดยไม่มีช่องว่าง
         const toEnd = animCycle % 2 === 0;
-        ball.style.transition = 'transform ' + DUR + 'ms ' + ease;
+        const legEase = toEnd ? ease : reverseBezier(ease);
+        ball.style.transition = 'transform ' + DUR + 'ms ' + legEase;
         ball.style.transform = 'translateX(' + (toEnd ? maxW : 0) + 'px)';
-        animateGraphDot(DUR, ease, !toEnd);
+        graphDotSet(toEnd ? 0 : 100, toEnd ? 0 : 100);
+        graphDotTo(DUR, 'linear', legEase, toEnd ? 100 : 0, toEnd ? 100 : 0);
         animCycle++;
-        timer = setTimeout(runLoopEngine, DUR + 150);
+        timer = setTimeout(runLoopEngine, DUR);
 
       } else if (currentMode === 'cycle') {
         // วิ่งจบแล้วดีดกลับต้นทาง เหมือน loopOut("cycle")
         ball.style.transition = 'transform ' + DUR + 'ms ' + ease;
         ball.style.transform = 'translateX(' + maxW + 'px)';
-        animateGraphDot(DUR, ease, false);
+        graphDotSet(0, 0);
+        graphDotTo(DUR, 'linear', ease, 100, 100);
         timer = setTimeout(() => {
           snapToStart(() => { timer = setTimeout(runLoopEngine, 120); });
         }, DUR);
@@ -488,23 +549,33 @@
         }
         ball.style.transition = 'transform ' + DUR + 'ms ' + ease;
         ball.style.transform = 'translateX(' + (step * idx) + 'px)';
-        animateGraphDot(DUR, ease, false);
+        graphDotSet(0, 0);
+        graphDotTo(DUR, 'linear', ease, 100, 100);
         animCycle++;
         timer = setTimeout(runLoopEngine, DUR + 100);
 
       } else if (currentMode === 'continue') {
-        // อีสจบแล้ววิ่งต่อด้วยความเร็วคงที่ เหมือน loopOut("continue")
+        // loopOut("continue") = วิ่งต่อ "ด้วยความเร็วปลายทางของเคิร์ฟ" ไม่มีหยุด
+        // ช่วงหางจึงคำนวณจากความชันจริงที่ t=1 ไม่ใช่ linear มั่ว ๆ
+        const tail = continueTail(ease);
+        const segEnd = maxW * 0.5;          // ช่วงคีย์เฟรม = ครึ่งราง
+        const tailMs = Math.round(DUR * tail.t);
+        const tailPx = segEnd * tail.gain;  // gain <= 1 จึงไม่มีทางเลยขอบราง
+
         ball.style.transition = 'transform ' + DUR + 'ms ' + ease;
-        ball.style.transform = 'translateX(' + (maxW * 0.65) + 'px)';
-        animateGraphDot(DUR, ease, false);
+        ball.style.transform = 'translateX(' + segEnd + 'px)';
+        graphDotSet(0, 0);
+        graphDotTo(DUR, 'linear', ease, 100, 100);
+
         timer = setTimeout(() => {
           if (paused) return;
-          const tail = Math.round(DUR * 0.7);
-          ball.style.transition = 'transform ' + tail + 'ms linear';
-          ball.style.transform = 'translateX(' + maxW + 'px)';
+          // ความเร็วต่อเนื่องพอดี: segEnd*gain px ใน t*DUR ms = v*segEnd/DUR px/ms
+          ball.style.transition = 'transform ' + tailMs + 'ms linear';
+          ball.style.transform = 'translateX(' + (segEnd + tailPx) + 'px)';
+          graphDotTo(tailMs, 'linear', 'linear', 100 + 100 * tail.t, 100 + 100 * tail.gain);
           timer = setTimeout(() => {
             snapToStart(() => { timer = setTimeout(runLoopEngine, 120); });
-          }, tail + 200);
+          }, tailMs + 350);
         }, DUR);
       }
     }
@@ -529,6 +600,7 @@
         btn.classList.toggle('active', btn.dataset.mode === mode);
       });
       elExp.textContent = 'loopOut("' + mode + '")';
+      setGraph(mode, currentSelected.val);
       resetAndPlay();
     }
 
@@ -536,7 +608,7 @@
       currentSelected = curves[index];
       elName.textContent = currentSelected.name;
       elBezier.textContent = currentSelected.val;
-      graphPath.setAttribute('d', curvePath(currentSelected.val));
+      setGraph(currentMode, currentSelected.val);
       document.querySelectorAll('.item').forEach(el => {
         el.classList.toggle('active', Number(el.dataset.index) === index);
       });
@@ -686,7 +758,7 @@
       else { resetAndPlay(); }
     });
 
-    graphPath.setAttribute('d', curvePath(currentSelected.val));
+    setGraph(currentMode, currentSelected.val);
     elBezier.textContent = currentSelected.val;
     elName.textContent = currentSelected.name;
     renderList(curves);
